@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts';
 import { AlignmentAnalysis, AlignmentStatus, PreNupData } from '../types';
 import { PRENUP_QUESTIONS } from '../constants';
 import { Button } from './ui/Button';
+import { ShareCard } from './ShareCard';
 
 interface Props {
   results: AlignmentAnalysis[];
@@ -63,8 +64,9 @@ const D3Heatmap: React.FC<{ results: AlignmentAnalysis[] }> = ({ results }) => {
 };
 
 export const PreNupResults: React.FC<Props> = ({ results, data, onReset }) => {
+  const [showShareCard, setShowShareCard] = useState(false);
   const overallScore = Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length);
-  
+
   // Prepare chart data
   const chartData = results.map((r, i) => ({
     subject: `Q${i + 1}`,
@@ -72,8 +74,29 @@ export const PreNupResults: React.FC<Props> = ({ results, data, onReset }) => {
     fullMark: 100
   }));
 
+  const lowCount = results.filter(r => r.status === AlignmentStatus.LOW).length;
+  const mediumCount = results.filter(r => r.status === AlignmentStatus.MEDIUM).length;
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <>
+      {showShareCard && (
+        <ShareCard
+          type="prenup"
+          data={{
+            title: 'JV Pre-Nup Results',
+            score: overallScore,
+            partnerNames: [data.partnerA.name, data.partnerB.name],
+            highlights: [
+              `${results.length} questions analyzed`,
+              `${lowCount} critical conflicts detected`,
+              overallScore > 75 ? 'Ready to proceed' : 'Work required'
+            ]
+          }}
+          onClose={() => setShowShareCard(false)}
+        />
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Alignment Report</h2>
@@ -176,9 +199,15 @@ export const PreNupResults: React.FC<Props> = ({ results, data, onReset }) => {
         })}
       </div>
 
-      <div className="mt-12 text-center pb-20">
-        <Button onClick={onReset} variant="secondary">Start New Analysis</Button>
+      <div className="mt-12 text-center pb-20 flex gap-4 justify-center">
+        <Button onClick={() => setShowShareCard(true)} variant="secondary">
+          🔗 Share Results
+        </Button>
+        <Button onClick={onReset} variant="secondary">
+          Start New Analysis
+        </Button>
       </div>
     </div>
+    </>
   );
 };

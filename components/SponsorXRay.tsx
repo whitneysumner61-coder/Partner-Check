@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { XRAY_QUESTIONS } from '../constants';
 import { XRayProfile } from '../types';
 import { Button } from './ui/Button';
+import { exploriumService } from '../services/exploriumService';
 
 interface Props {
   onComplete: (data: XRayProfile) => void;
@@ -11,7 +12,8 @@ interface Props {
 export const SponsorXRay: React.FC<Props> = ({ onComplete, onCancel }) => {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [name, setName] = useState('');
-  
+  const [isVerifying, setIsVerifying] = useState(false);
+
   // Structured Track Record Fields
   const [trackDetails, setTrackDetails] = useState({
     deals: '',
@@ -23,18 +25,35 @@ export const SponsorXRay: React.FC<Props> = ({ onComplete, onCancel }) => {
     setAnswers(prev => ({ ...prev, [id]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setIsVerifying(true);
+
     // Format the track record into a readable string
     const formattedTrackRecord = `Deals: ${trackDetails.deals} | Exits: ${trackDetails.exits} | Distributions: ${trackDetails.distributions}`;
+
+    // Verify company data with Explorium
+    const verificationResult = await exploriumService.verifyCompany(name, {
+      trackRecord: formattedTrackRecord,
+      deals: parseInt(trackDetails.deals) || 0
+    });
+
+    // Enrich with company data
+    const companyData = await exploriumService.enrichCompanyProfile(name);
 
     onComplete({
       sponsorName: name,
       trackRecord: formattedTrackRecord,
       answers,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      verificationData: {
+        verified: verificationResult.verified,
+        confidence: verificationResult.confidence,
+        companyData: companyData
+      }
     });
+
+    setIsVerifying(false);
   };
 
   return (
@@ -132,11 +151,11 @@ export const SponsorXRay: React.FC<Props> = ({ onComplete, onCancel }) => {
         ))}
 
         <div className="flex gap-4 pt-4">
-          <Button type="button" variant="secondary" onClick={onCancel} className="w-1/3">
+          <Button type="button" variant="secondary" onClick={onCancel} className="w-1/3" disabled={isVerifying}>
             Cancel
           </Button>
-          <Button type="submit" className="w-2/3">
-            Generate X-Ray Profile
+          <Button type="submit" className="w-2/3" disabled={isVerifying}>
+            {isVerifying ? 'Verifying Company Data...' : 'Generate X-Ray Profile'}
           </Button>
         </div>
       </form>

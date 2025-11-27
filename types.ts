@@ -20,6 +20,11 @@ export interface XRayProfile {
   trackRecord: string;
   answers: Record<string, string>;
   createdAt: string;
+  verificationData?: {
+    verified: boolean;
+    confidence: number;
+    companyData?: any; // Will be CompanyData from exploriumService
+  };
 }
 
 export interface PreNupData {
