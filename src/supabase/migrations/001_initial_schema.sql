@@ -131,3 +131,18 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Function to increment usage tracking
+CREATE OR REPLACE FUNCTION public.increment_usage(
+  p_user_id UUID,
+  p_resource_type TEXT,
+  p_month_year TEXT
+)
+RETURNS void AS $$
+BEGIN
+  INSERT INTO public.usage_tracking (user_id, resource_type, month_year, count)
+  VALUES (p_user_id, p_resource_type, p_month_year, 1)
+  ON CONFLICT (user_id, resource_type, month_year)
+  DO UPDATE SET count = usage_tracking.count + 1;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

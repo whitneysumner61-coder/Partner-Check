@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
 import { getUserXRayProfiles, getUserPreNupAnalyses } from '../lib/database';
@@ -9,6 +10,7 @@ import { formatDateShort } from '../lib/utils';
 import toast from 'react-hot-toast';
 
 export const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { tier, limits } = useSubscription();
   const [xrays, setXrays] = useState<XRayProfileDB[]>([]);
@@ -114,7 +116,7 @@ export const Dashboard: React.FC = () => {
                   <div className="text-center py-12 text-slate-500">
                     <div className="text-5xl mb-4">🩺</div>
                     <p className="text-lg mb-4">No X-Ray profiles yet</p>
-                    <Button onClick={() => window.location.href = '/app'}>
+                    <Button onClick={() => navigate('/app')}>
                       Create Your First X-Ray
                     </Button>
                   </div>
@@ -171,7 +173,7 @@ export const Dashboard: React.FC = () => {
                   <div className="text-center py-12 text-slate-500">
                     <div className="text-5xl mb-4">🤝</div>
                     <p className="text-lg mb-4">No Pre-Nup analyses yet</p>
-                    <Button onClick={() => window.location.href = '/app'}>
+                    <Button onClick={() => navigate('/app')}>
                       Create Your First Pre-Nup
                     </Button>
                   </div>
@@ -243,7 +245,7 @@ export const Dashboard: React.FC = () => {
             <Button
               size="lg"
               variant="secondary"
-              onClick={() => window.location.href = '/pricing'}
+              onClick={() => navigate('/pricing')}
             >
               View Pricing
             </Button>

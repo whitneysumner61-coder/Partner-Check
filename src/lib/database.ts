@@ -16,13 +16,15 @@ export const createXRayProfile = async (
     const shareToken = generateToken();
     const shareExpiration = tier === 'free' ? 7 : tier === 'pro' ? 30 : null;
     
+    const expirationDate = shareExpiration ? calculateExpirationDate(shareExpiration) : null;
+    
     const dbData = {
       user_id: userId,
       sponsor_name: data.sponsorName,
       track_record: data.trackRecord,
       answers: data.answers,
       share_token: shareToken,
-      share_expires_at: shareExpiration ? calculateExpirationDate(shareExpiration)?.toISOString() : null,
+      share_expires_at: expirationDate ? expirationDate.toISOString() : null,
     };
 
     const { data: result, error } = await supabase
@@ -109,6 +111,8 @@ export const createPreNupAnalysis = async (
     const totalScore = analysisResults.reduce((sum, result) => sum + result.score, 0);
     const overallScore = analysisResults.length > 0 ? totalScore / analysisResults.length : 0;
 
+    const expirationDate = shareExpiration ? calculateExpirationDate(shareExpiration) : null;
+    
     const dbData = {
       user_id: userId,
       partner_a_name: data.partnerA.name,
@@ -118,7 +122,7 @@ export const createPreNupAnalysis = async (
       analysis_results: analysisResults,
       overall_score: overallScore,
       share_token: shareToken,
-      share_expires_at: shareExpiration ? calculateExpirationDate(shareExpiration)?.toISOString() : null,
+      share_expires_at: expirationDate ? expirationDate.toISOString() : null,
     };
 
     const { data: result, error } = await supabase
