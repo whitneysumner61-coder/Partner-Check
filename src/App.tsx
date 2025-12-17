@@ -244,12 +244,18 @@ const App: React.FC = () => {
                 </span>
               </div>
             )}
+            <a 
+              href="/dashboard"
+              className="text-slate-500 hover:text-primary text-sm font-semibold"
+            >
+              Dashboard
+            </a>
             {state.currentView !== ViewState.HOME ? (
               <button 
                 onClick={() => setState(prev => ({ ...prev, currentView: ViewState.HOME }))}
                 className="text-slate-500 hover:text-primary text-sm font-semibold"
               >
-                Exit to Home
+                Home
               </button>
             ) : null}
             <button 

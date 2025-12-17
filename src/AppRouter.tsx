@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { Landing } from './pages/Landing';
+import { Dashboard } from './pages/Dashboard';
 import { Pricing } from './pages/Pricing';
 import { Terms } from './pages/Legal/Terms';
 import { Privacy } from './pages/Legal/Privacy';
@@ -26,6 +27,14 @@ export const AppRouter: React.FC = () => {
             element={
               <ProtectedRoute>
                 <App />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/dashboard" 
+            element={
+              <ProtectedRoute>
+                <Dashboard />
               </ProtectedRoute>
             } 
           />
