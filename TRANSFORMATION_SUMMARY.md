@@ -218,7 +218,9 @@ See `SETUP.md` for detailed instructions.
 
 ## Security Audit Results
 
-✅ **CodeQL Analysis: 0 vulnerabilities**  
+✅ **npm audit: 0 vulnerabilities**  
+✅ **CodeQL Analysis: 0 alerts**  
+✅ **jsPDF upgraded to 3.0.4** (patched DoS and ReDoS vulnerabilities)  
 ✅ **Row Level Security enabled**  
 ✅ **Authentication required for sensitive routes**  
 ✅ **Environment variables protected**  
