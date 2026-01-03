@@ -2,9 +2,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AlignmentAnalysis, AlignmentStatus } from "../types";
 
 const createClient = () => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    console.warn("No API_KEY found in process.env");
+    console.warn("No VITE_GEMINI_API_KEY found in environment variables");
     return null;
   }
   return new GoogleGenAI({ apiKey });
