@@ -184,6 +184,59 @@ The app is a standard Vite React application and can be deployed to:
 - Render
 - Any static hosting with SPA support
 
+## Autopilot YouTube Factory
+
+The project includes an autonomous video factory (`AUTOPILOT_YT.py`) for creating and publishing partner due diligence content to YouTube with governance guardrails.
+
+### Features
+- **Deterministic video generation** using ffmpeg
+- **Job state machine** with explicit transitions
+- **Outbox pattern** for reliable task execution
+- **Single-use capability tokens** for secure publish operations
+- **Daily publish caps** and content similarity checks
+- **Policy linting** for content safety
+- **MCP-like tool server** via FastAPI
+
+### Quick Start
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Initialize database
+python AUTOPILOT_YT.py init-db
+
+# Set up YouTube OAuth (one-time)
+python AUTOPILOT_YT.py oauth
+
+# Create a video job
+python AUTOPILOT_YT.py create-job --topic "Partner risk checklist for SaaS founders" --privacy unlisted
+
+# Run the worker to process jobs
+python AUTOPILOT_YT.py worker
+
+# Or start the API server
+python AUTOPILOT_YT.py serve --host 0.0.0.0 --port 8787
+```
+
+### Configuration
+
+Add these to your `.env` file (see `.env.local.example`):
+
+```bash
+AUTOPILOT_DB=./autopilot.db
+AUTOPILOT_STORAGE=./storage
+AUTOPILOT_APP_KEY=your-secure-32-byte-key
+AUTOPILOT_MAX_PUBLISH_PER_DAY=1
+AUTOPILOT_MAX_RENDERS_PER_JOB=2
+```
+
+### Prerequisites
+- Python 3.9+
+- ffmpeg installed on system PATH
+- Google Cloud project with YouTube Data API enabled
+- OAuth 2.0 client credentials (`client_secrets.json`)
+
 ## Development Roadmap
 
 ### Completed ✅
@@ -193,6 +246,7 @@ The app is a standard Vite React application and can be deployed to:
 - Subscription tiers
 - Landing page
 - Legal pages
+- Autopilot YouTube Factory
 
 ### In Progress 🚧
 - Stripe payment integration
@@ -209,6 +263,8 @@ The app is a standard Vite React application and can be deployed to:
 
 ## Environment Variables Reference
 
+### Frontend (Vite/React)
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `VITE_SUPABASE_URL` | Yes | Your Supabase project URL |
@@ -216,6 +272,20 @@ The app is a standard Vite React application and can be deployed to:
 | `VITE_STRIPE_PUBLISHABLE_KEY` | No | Stripe publishable key |
 | `VITE_APP_URL` | Yes | Application URL |
 | `VITE_GEMINI_API_KEY` | Yes | Google Gemini API key |
+
+### Autopilot YouTube Factory (Python)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AUTOPILOT_DB` | No | `./autopilot.db` | SQLite database path |
+| `AUTOPILOT_STORAGE` | No | `./storage` | Asset storage directory |
+| `AUTOPILOT_BASE_URL` | No | `http://127.0.0.1:8787` | Server base URL |
+| `AUTOPILOT_APP_KEY` | Yes | - | HMAC signing key (32+ bytes) |
+| `AUTOPILOT_MAX_PUBLISH_PER_DAY` | No | `1` | Daily publish limit |
+| `AUTOPILOT_MAX_RENDERS_PER_JOB` | No | `2` | Max renders per job |
+| `AUTOPILOT_YT_CATEGORY_ID` | No | `22` | YouTube category ID |
+| `AUTOPILOT_OAUTH_CLIENT_SECRETS` | Yes | `./client_secrets.json` | OAuth client secrets path |
+| `AUTOPILOT_OAUTH_TOKEN_FILE` | No | `./oauth_token.json` | OAuth token storage path |
 
 ## Security Features
 
