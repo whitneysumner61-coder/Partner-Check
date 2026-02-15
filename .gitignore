@@ -55,12 +55,3 @@ wheels/
 venv/
 .venv/
 ENV/
-
-# Autopilot YouTube Factory
-storage/
-*.db
-*.db-wal
-*.db-shm
-autopilot.db*
-client_secrets.json
-oauth_token.json
