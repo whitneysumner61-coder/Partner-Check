@@ -1,56 +1,85 @@
 /**
- * Claudex — a hybrid analysis engine that fuses OpenAI Codex-style structured
- * generation with Claude's deep reasoning. Both models analyze alignment in
- * parallel; results are synthesized into a single consensus answer.
+ * Claudex — free, open-source, zero-API-key hybrid engine powered by Ollama.
  *
- *   OpenAI  →  structured JSON score + status
- *   Claude  →  reasoning-backed score + status
- *   Claudex →  weighted consensus (Claude 60 / OpenAI 40) + richer summary
+ * Two local models run in parallel, each playing a distinct role:
+ *
+ *   DeepSeek-R1  →  reasoning engine  (chain-of-thought, the "Claude" side)
+ *   Qwen2.5-Coder → structured output engine  (precise JSON, the "Codex" side)
+ *
+ * Results are synthesized into a weighted consensus (R1 60% / Coder 40%).
+ *
+ * Prerequisites (one-time setup):
+ *   brew install ollama          # or https://ollama.com/download
+ *   ollama pull deepseek-r1      # reasoning model (~4.7 GB for 7B)
+ *   ollama pull qwen2.5-coder    # coding / structured-output model (~4.7 GB)
+ *   ollama serve                 # starts local server on :11434
+ *
+ * Smaller/larger variants:
+ *   deepseek-r1:1.5b  (fastest, ~1 GB)   →  deepseek-r1:70b  (most powerful, ~40 GB)
+ *   qwen2.5-coder:1.5b                   →  qwen2.5-coder:32b
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { AlignmentAnalysis, AlignmentStatus } from "../types";
 
-// ─── Clients ──────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-const createClaudeClient = (): Anthropic | null => {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn("[Claudex] No VITE_ANTHROPIC_API_KEY found");
-    return null;
-  }
-  return new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-};
+const OLLAMA_BASE_URL =
+  (import.meta.env.VITE_OLLAMA_BASE_URL as string | undefined) ??
+  "http://localhost:11434/v1";
 
-const createOpenAIClient = (): OpenAI | null => {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn("[Claudex] No VITE_OPENAI_API_KEY found");
-    return null;
-  }
-  return new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-};
+/**
+ * Model used for the reasoning pass (DeepSeek-R1 family).
+ * Override via VITE_CLAUDEX_REASON_MODEL in .env.local
+ * Recommended: deepseek-r1:7b (balanced) or deepseek-r1:70b (max power)
+ */
+const REASON_MODEL =
+  (import.meta.env.VITE_CLAUDEX_REASON_MODEL as string | undefined) ??
+  "deepseek-r1";
+
+/**
+ * Model used for the structured-output pass (Qwen2.5-Coder family).
+ * Override via VITE_CLAUDEX_CODER_MODEL in .env.local
+ * Recommended: qwen2.5-coder:7b (balanced) or qwen2.5-coder:32b (max power)
+ */
+const CODER_MODEL =
+  (import.meta.env.VITE_CLAUDEX_CODER_MODEL as string | undefined) ??
+  "qwen2.5-coder";
+
+// ─── Ollama client (OpenAI-compatible endpoint) ───────────────────────────────
+
+/**
+ * Ollama exposes an OpenAI-compatible REST API at /v1.
+ * The openai SDK works against it with a dummy API key.
+ */
+const client = new OpenAI({
+  baseURL: OLLAMA_BASE_URL,
+  apiKey: "ollama", // Ollama ignores the key; value must be non-empty
+  dangerouslyAllowBrowser: true,
+});
 
 // ─── Shared prompt ────────────────────────────────────────────────────────────
 
-const buildPrompt = (questionText: string, answerA: string, answerB: string) =>
-  `You are a Real Estate Joint Venture arbitrator.
-Analyze these two answers to a specific question for alignment.
+const buildPrompt = (
+  questionText: string,
+  answerA: string,
+  answerB: string
+) => `You are a Real Estate Joint Venture arbitrator.
+Analyze the two partner answers below for alignment.
 
 Question: "${questionText}"
 Partner A Answer: "${answerA}"
 Partner B Answer: "${answerB}"
 
 Scoring rules:
-- HIGH   (score 70-100): partners agree on the core handling of the situation.
-- MEDIUM (score 35-69):  partners differ slightly but it is workable.
-- LOW    (score 0-34):   partners have a fundamental conflict.
+- HIGH   (70-100): partners agree on the core approach.
+- MEDIUM (35-69):  partners differ slightly but it is workable.
+- LOW    (0-34):   partners have a fundamental conflict.
 
-Return ONLY a JSON object — no prose, no markdown fences:
+Return ONLY a raw JSON object — no prose, no markdown, no code fences:
 {"status":"HIGH"|"MEDIUM"|"LOW","score":<integer 0-100>,"summary":"<one sentence>"}`;
 
-// ─── Individual model calls ───────────────────────────────────────────────────
+// ─── Individual engine calls ───────────────────────────────────────────────────
 
 interface RawResult {
   status: AlignmentStatus;
@@ -58,38 +87,43 @@ interface RawResult {
   summary: string;
 }
 
-async function runClaude(
-  client: Anthropic,
-  questionText: string,
-  answerA: string,
-  answerB: string
-): Promise<RawResult> {
-  const response = await client.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 512,
-    thinking: { type: "adaptive" },
-    messages: [{ role: "user", content: buildPrompt(questionText, answerA, answerB) }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") throw new Error("Claude: no text block");
-
-  const match = textBlock.text.match(/\{[\s\S]*?\}/);
-  if (!match) throw new Error("Claude: no JSON found");
-
-  return JSON.parse(match[0]);
-}
-
-async function runCodex(
-  client: OpenAI,
+/** DeepSeek-R1: reasoning pass. Strips <think>…</think> blocks before parsing. */
+async function runReasoningEngine(
   questionText: string,
   answerA: string,
   answerB: string
 ): Promise<RawResult> {
   const response = await client.chat.completions.create({
-    model: "gpt-4o",
-    response_format: { type: "json_object" },
+    model: REASON_MODEL,
+    temperature: 0.2, // slight warmth for natural summaries
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a precise arbitrator. Think carefully, then output only a JSON object.",
+      },
+      { role: "user", content: buildPrompt(questionText, answerA, answerB) },
+    ],
+  });
+
+  const raw = response.choices[0]?.message?.content ?? "";
+  // DeepSeek-R1 wraps its chain-of-thought in <think>…</think> — strip it
+  const stripped = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const match = stripped.match(/\{[\s\S]*?\}/);
+  if (!match) throw new Error(`R1: no JSON found in: ${stripped.slice(0, 200)}`);
+  return JSON.parse(match[0]);
+}
+
+/** Qwen2.5-Coder: structured-output pass. Strict JSON, temperature=0. */
+async function runCoderEngine(
+  questionText: string,
+  answerA: string,
+  answerB: string
+): Promise<RawResult> {
+  const response = await client.chat.completions.create({
+    model: CODER_MODEL,
     temperature: 0,
+    format: "json", // Ollama JSON mode — keeps output strictly valid JSON
     messages: [
       {
         role: "system",
@@ -98,25 +132,26 @@ async function runCodex(
       },
       { role: "user", content: buildPrompt(questionText, answerA, answerB) },
     ],
-  });
+  } as Parameters<typeof client.chat.completions.create>[0]);
 
-  const text = response.choices[0]?.message?.content ?? "";
-  return JSON.parse(text);
+  const raw = response.choices[0]?.message?.content ?? "";
+  const match = raw.match(/\{[\s\S]*?\}/);
+  if (!match) throw new Error(`Coder: no JSON found in: ${raw.slice(0, 200)}`);
+  return JSON.parse(match[0]);
 }
 
 // ─── Synthesis ────────────────────────────────────────────────────────────────
 
 /**
- * Merge two raw results into a Claudex consensus.
- * Weights: Claude 60%, OpenAI 40% — Claude carries more weight because its
- * adaptive thinking produces more context-aware scores.
+ * Merge the two engine results into a Claudex consensus.
+ * DeepSeek-R1 carries 60% weight (richer reasoning),
+ * Qwen2.5-Coder carries 40% (precise scoring discipline).
  */
 function synthesize(
-  claude: RawResult,
-  codex: RawResult,
-  questionText: string
+  reason: RawResult,
+  coder: RawResult
 ): Omit<AlignmentAnalysis, "questionId"> {
-  const score = Math.round(claude.score * 0.6 + codex.score * 0.4);
+  const score = Math.round(reason.score * 0.6 + coder.score * 0.4);
 
   const status: AlignmentStatus =
     score >= 70
@@ -125,13 +160,11 @@ function synthesize(
       ? AlignmentStatus.MEDIUM
       : AlignmentStatus.LOW;
 
-  // Use Claude's summary when both models agree on tier; otherwise surface the
-  // divergence so users can see where the models disagreed.
   const summary =
-    claude.status === codex.status
-      ? claude.summary
-      : `[Claudex] Claude saw ${claude.status} alignment; Codex saw ${codex.status}. ` +
-        `Consensus score ${score}/100. ${claude.summary}`;
+    reason.status === coder.status
+      ? reason.summary // both agree → use the richer reasoning summary
+      : `[Claudex] R1 saw ${reason.status} alignment; Coder saw ${coder.status}. ` +
+        `Consensus ${score}/100. ${reason.summary}`;
 
   return { status, score, summary };
 }
@@ -143,58 +176,50 @@ export const analyzeAlignment = async (
   answerA: string,
   answerB: string
 ): Promise<AlignmentAnalysis> => {
-  const claude = createClaudeClient();
-  const codex = createOpenAIClient();
-
-  if (!claude && !codex) {
-    return {
-      questionId: "",
-      status: AlignmentStatus.PENDING,
-      summary: "Claudex: both API keys missing — cannot analyze.",
-      score: 50,
-    };
-  }
-
-  // Run whichever engines are available in parallel
-  const [claudeResult, codexResult] = await Promise.allSettled([
-    claude
-      ? runClaude(claude, questionText, answerA, answerB)
-      : Promise.reject(new Error("Claude client unavailable")),
-    codex
-      ? runCodex(codex, questionText, answerA, answerB)
-      : Promise.reject(new Error("OpenAI client unavailable")),
+  const [reasonResult, coderResult] = await Promise.allSettled([
+    runReasoningEngine(questionText, answerA, answerB),
+    runCoderEngine(questionText, answerA, answerB),
   ]);
 
-  const claudeOk = claudeResult.status === "fulfilled";
-  const codexOk = codexResult.status === "fulfilled";
+  const reasonOk = reasonResult.status === "fulfilled";
+  const coderOk = coderResult.status === "fulfilled";
 
-  if (!claudeOk) console.error("[Claudex] Claude failed:", (claudeResult as PromiseRejectedResult).reason);
-  if (!codexOk) console.error("[Claudex] Codex failed:", (codexResult as PromiseRejectedResult).reason);
+  if (!reasonOk)
+    console.error(
+      "[Claudex] DeepSeek-R1 failed:",
+      (reasonResult as PromiseRejectedResult).reason
+    );
+  if (!coderOk)
+    console.error(
+      "[Claudex] Qwen2.5-Coder failed:",
+      (coderResult as PromiseRejectedResult).reason
+    );
 
-  // Both succeeded → synthesize
-  if (claudeOk && codexOk) {
+  // Both succeeded → full synthesis
+  if (reasonOk && coderOk) {
     const result = synthesize(
-      (claudeResult as PromiseFulfilledResult<RawResult>).value,
-      (codexResult as PromiseFulfilledResult<RawResult>).value,
-      questionText
+      (reasonResult as PromiseFulfilledResult<RawResult>).value,
+      (coderResult as PromiseFulfilledResult<RawResult>).value
     );
     return { questionId: "", ...result };
   }
 
   // Fallback to whichever engine succeeded
-  if (claudeOk) {
-    const r = (claudeResult as PromiseFulfilledResult<RawResult>).value;
-    return { questionId: "", status: r.status as AlignmentStatus, score: r.score, summary: r.summary };
+  if (reasonOk) {
+    const r = (reasonResult as PromiseFulfilledResult<RawResult>).value;
+    return { questionId: "", status: r.status, score: r.score, summary: r.summary };
   }
-  if (codexOk) {
-    const r = (codexResult as PromiseFulfilledResult<RawResult>).value;
-    return { questionId: "", status: r.status as AlignmentStatus, score: r.score, summary: r.summary };
+  if (coderOk) {
+    const r = (coderResult as PromiseFulfilledResult<RawResult>).value;
+    return { questionId: "", status: r.status, score: r.score, summary: r.summary };
   }
 
+  // Both failed — likely Ollama isn't running
   return {
     questionId: "",
-    status: AlignmentStatus.MEDIUM,
-    summary: "Claudex: analysis failed on both engines.",
+    status: AlignmentStatus.PENDING,
+    summary:
+      "Claudex: Ollama is not running. Start it with `ollama serve` and ensure both models are pulled.",
     score: 50,
   };
 };
