@@ -1,22 +1,29 @@
 /**
- * Claudex — free, open-source, zero-API-key hybrid engine powered by Ollama.
+ * Claudex — free, open-source hybrid engine powered by Ollama.
  *
- * Two local models run in parallel, each playing a distinct role:
+ * Runs on ANY Ollama instance — local or cloud VM (RunPod, Vast.ai, any VPS).
+ * Point VITE_OLLAMA_BASE_URL at your cloud VM and it works identically.
  *
- *   DeepSeek-R1  →  reasoning engine  (chain-of-thought, the "Claude" side)
- *   Qwen2.5-Coder → structured output engine  (precise JSON, the "Codex" side)
+ * Two models run in parallel, each playing a distinct role:
+ *   DeepSeek-R1   → reasoning engine  (chain-of-thought, the "Claude" side)
+ *   Qwen2.5-Coder → structured output engine (precise JSON, the "Codex" side)
  *
  * Results are synthesized into a weighted consensus (R1 60% / Coder 40%).
  *
- * Prerequisites (one-time setup):
- *   brew install ollama          # or https://ollama.com/download
- *   ollama pull deepseek-r1      # reasoning model (~4.7 GB for 7B)
- *   ollama pull qwen2.5-coder    # coding / structured-output model (~4.7 GB)
- *   ollama serve                 # starts local server on :11434
+ * ── Cloud VM setup (one-time) ─────────────────────────────────────────────────
+ *  1. Spin up a GPU VM (RunPod / Vast.ai / any VPS with a GPU)
+ *  2. Install Ollama:  curl -fsSL https://ollama.com/install.sh | sh
+ *  3. Pull models:     ollama pull deepseek-r1 && ollama pull qwen2.5-coder
+ *  4. Allow external:  export OLLAMA_HOST=0.0.0.0:11434
+ *                      export OLLAMA_ORIGINS=*          # allow browser requests
+ *  5. Start server:    ollama serve
+ *  6. Open port 11434 in your VM's firewall / security group
+ *  7. Set in .env.local:  VITE_OLLAMA_BASE_URL=http://<vm-ip>:11434/v1
  *
- * Smaller/larger variants:
- *   deepseek-r1:1.5b  (fastest, ~1 GB)   →  deepseek-r1:70b  (most powerful, ~40 GB)
- *   qwen2.5-coder:1.5b                   →  qwen2.5-coder:32b
+ * ── Model size guide ──────────────────────────────────────────────────────────
+ *  Mini  → deepseek-r1:1.5b  + qwen2.5-coder:1.5b   (~1 GB each, CPU-friendly)
+ *  Bal   → deepseek-r1:7b    + qwen2.5-coder:7b      (~4.7 GB each, default)
+ *  Max   → deepseek-r1:70b   + qwen2.5-coder:32b     (40 GB + 20 GB, GPU only)
  */
 
 import OpenAI from "openai";
@@ -57,6 +64,31 @@ const client = new OpenAI({
   apiKey: "ollama", // Ollama ignores the key; value must be non-empty
   dangerouslyAllowBrowser: true,
 });
+
+// ─── Health check ────────────────────────────────────────────────────────────
+
+export interface ClaudexHealth {
+  reachable: boolean;
+  url: string;
+  reasonModel: string;
+  coderModel: string;
+  /** null when unreachable, otherwise list of pulled model names */
+  pulledModels: string[] | null;
+}
+
+/** Ping the Ollama instance and report which models are available. */
+export const checkHealth = async (): Promise<ClaudexHealth> => {
+  const base = OLLAMA_BASE_URL.replace(/\/v1\/?$/, "");
+  try {
+    const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { models?: Array<{ name: string }> };
+    const pulledModels = (data.models ?? []).map((m) => m.name);
+    return { reachable: true, url: base, reasonModel: REASON_MODEL, coderModel: CODER_MODEL, pulledModels };
+  } catch {
+    return { reachable: false, url: base, reasonModel: REASON_MODEL, coderModel: CODER_MODEL, pulledModels: null };
+  }
+};
 
 // ─── Shared prompt ────────────────────────────────────────────────────────────
 
